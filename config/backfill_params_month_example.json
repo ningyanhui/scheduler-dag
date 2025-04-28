@@ -1,0 +1,13 @@
+{
+    "start_date": "2024-01-01",
+    "end_date": "2024-12-31",
+    "date_granularity": "month",
+    "date_param_name": "month_start_date",
+    "dry_run": false,
+    "params": {
+        "data_path": "/data/backfill/monthly_report",
+        "target_region": "global",
+        "debug_mode": false,
+        "max_retry": 1
+    }
+} 

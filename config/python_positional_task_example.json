@@ -1,0 +1,27 @@
+{
+    "name": "位置参数Python任务示例",
+    "description": "演示使用位置参数而非命名参数的Python任务",
+    "params": {
+        "day_id": "20240714",
+        "table_list": "tranai_dw.table_a,tranai_dw.table_b"
+    },
+    "tasks": [
+        {
+            "task_id": "positional_args_task",
+            "type": "shell",
+            "command": "python table_partition_check.py ${day_id} ${table_list}",
+            "params": {
+                "day_id": "${day_id}",
+                "table_list": "${table_list}"
+            },
+            "working_dir": "./scripts"
+        }
+    ],
+    "dependencies": [],
+    "alert": {
+        "type": "feishu",
+        "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-token",
+        "at_all": true,
+        "fail_fast": true
+    }
+} 

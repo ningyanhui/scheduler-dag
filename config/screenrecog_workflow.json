@@ -1,0 +1,77 @@
+{
+    "name": "屏幕识别数据ETL工作流",
+    "description": "处理屏幕识别相关的事件数据和用户行为分析",
+    "params": {
+        "day_id": "${yyyy-MM-dd-1}",
+        "data_path": "/data/screenrecog"
+    },
+    "tasks": [
+        {
+            "task_id": "screen_event_detail",
+            "type": "spark-sql",
+            "sql_file": "./sql/dwd_screenrecog_event_detail_di_etl.sql",
+            "params": {
+                "day_id": "${day_id}"
+            },
+            "spark_config": {
+                "spark.app.name": "屏幕识别事件明细ETL_${day_id}",
+                "spark.executor.memory": "4g",
+                "spark.executor.instances": "10",
+                "spark.dynamicAllocation.enabled": "true",
+                "spark.dynamicAllocation.minExecutors": "5"
+            }
+        },
+        {
+            "task_id": "user_behavior_analyze",
+            "type": "spark-sql",
+            "sql_file": "./sql/dws_screenrecog_user_behavior_di_etl.sql",
+            "params": {
+                "day_id": "${day_id}"
+            },
+            "spark_config": {
+                "spark.app.name": "用户行为分析ETL_${day_id}",
+                "spark.executor.memory": "8g",
+                "spark.executor.instances": "20",
+                "spark.dynamicAllocation.enabled": "true",
+                "spark.dynamicAllocation.minExecutors": "10"
+            }
+        },
+        {
+            "task_id": "data_quality_check",
+            "type": "python",
+            "script_path": "./scripts/data_quality_check.py",
+            "params": {
+                "day_id": "${day_id}",
+                "table_list": "dwd_screenrecog_event_detail_di,dws_screenrecog_user_behavior_di"
+            }
+        },
+        {
+            "task_id": "notify_completion",
+            "type": "shell",
+            "command": "echo '数据处理完成 ${day_id}' | mail -s '屏幕识别ETL完成' data-team@example.com",
+            "params": {
+                "day_id": "${day_id}"
+            }
+        }
+    ],
+    "dependencies": [
+        {
+            "from": "screen_event_detail",
+            "to": "user_behavior_analyze"
+        },
+        {
+            "from": "user_behavior_analyze",
+            "to": "data_quality_check"
+        },
+        {
+            "from": "data_quality_check",
+            "to": "notify_completion"
+        }
+    ],
+    "alert": {
+        "type": "feishu",
+        "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-token",
+        "at_all": true,
+        "fail_fast": true
+    }
+} 

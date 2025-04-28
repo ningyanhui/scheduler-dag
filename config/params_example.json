@@ -1,0 +1,9 @@
+{
+    "day_id": "2024-07-15",
+    "day_id_no_dash": "20240715",
+    "data_path": "/data/production/screenrecog",
+    "target_region": "global",
+    "debug_mode": false,
+    "max_retry": 2,
+    "notify_email": "data-team@example.com"
+} 

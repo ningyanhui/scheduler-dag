@@ -1,0 +1,18 @@
+{
+    "custom_dates": [
+        "2024-01-01",
+        "2024-01-15",
+        "2024-02-01",
+        "2024-02-15",
+        "2024-03-01",
+        "2024-03-15"
+    ],
+    "date_param_name": "batch_date",
+    "dry_run": false,
+    "params": {
+        "data_path": "/data/backfill/custom_dates",
+        "target_region": "europe",
+        "debug_mode": false,
+        "max_retry": 2
+    }
+} 

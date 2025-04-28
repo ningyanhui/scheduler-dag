@@ -1,0 +1,43 @@
+{
+    "name": "位置参数Python任务最佳实践",
+    "description": "演示处理位置参数Python任务的两种方法",
+    "params": {
+        "day_id": "20240714",
+        "table_list": "tranai_dw.table_a,tranai_dw.table_b"
+    },
+    "tasks": [
+        {
+            "task_id": "shell_approach",
+            "type": "shell",
+            "command": "python ./scripts/table_partition_check.py ${day_id} ${table_list}",
+            "params": {
+                "day_id": "${day_id}",
+                "table_list": "${table_list}"
+            },
+            "working_dir": "."
+        },
+        {
+            "task_id": "python_custom_command",
+            "type": "python",
+            "script_path": "./scripts/table_partition_check.py",
+            "custom_command": "python {script_path} {params.day_id} {params.table_list}",
+            "params": {
+                "day_id": "${day_id}",
+                "table_list": "${table_list}"
+            },
+            "working_dir": "."
+        }
+    ],
+    "dependencies": [
+        {
+            "from": "shell_approach",
+            "to": "python_custom_command"
+        }
+    ],
+    "alert": {
+        "type": "feishu",
+        "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-token",
+        "at_all": true,
+        "fail_fast": true
+    }
+} 

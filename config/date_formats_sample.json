@@ -1,0 +1,28 @@
+{
+  "start_date": "2024-07-01",
+  "end_date": "2024-07-05",
+  "date_granularity": "day",
+  "date_param_names": [
+    "day_id", 
+    "batch_date", 
+    "data_date", 
+    "report_date",
+    "process_time",
+    "fiscal_period"
+  ],
+  "date_param_formats": {
+    "day_id": "%Y-%m-%d",
+    "batch_date": "%Y%m%d",
+    "data_date": "%Y/%m/%d",
+    "report_date": "%d-%m-%Y",
+    "process_time": "%Y-%m-%dT%H:%M:%S",
+    "fiscal_period": "%Y%m"
+  },
+  "dry_run": true,
+  "params": {
+    "data_path": "/data/backfill/sample",
+    "target_region": "all",
+    "debug_mode": true,
+    "max_retry": 2
+  }
+} 

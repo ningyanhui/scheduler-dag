@@ -1,0 +1,28 @@
+{
+    "name": "Python位置参数任务示例",
+    "description": "演示如何在Python任务中使用位置参数",
+    "params": {
+        "day_id": "20240714",
+        "table_list": "tranai_dw.table_a,tranai_dw.table_b"
+    },
+    "tasks": [
+        {
+            "task_id": "custom_python_cmd",
+            "type": "python",
+            "script_path": "./scripts/table_partition_check.py",
+            "custom_command": "python {script_path} {params.day_id} {params.table_list}",
+            "params": {
+                "day_id": "${day_id}",
+                "table_list": "${table_list}"
+            },
+            "working_dir": "."
+        }
+    ],
+    "dependencies": [],
+    "alert": {
+        "type": "feishu",
+        "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/your-webhook-token",
+        "at_all": true,
+        "fail_fast": true
+    }
+} 
