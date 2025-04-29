@@ -251,21 +251,27 @@ def run_workflow(config_path, params_path=None, job_ids=None, start_from=None):
     start_time = time.time()
     try:
         results = workflow.execute(only_tasks=task_ids, start_from=start_from)
-        success = all(result["status"] == "success" for result in results.values())
+        # 工作流执行到这里表示没有抛出异常，说明执行成功
+        success = True
         elapsed = time.time() - start_time
         
         print(f"\n执行结果汇总:")
         print(f"总共执行时间: {elapsed:.2f} 秒")
         print(f"状态: {'成功' if success else '失败'}")
         
+        # 获取已完成任务
+        completed_tasks = workflow.execution_history[-1].get("completed_tasks", [])
+        # 获取失败任务
+        failed_task_id = workflow.execution_history[-1].get("failed_task_id")
+        
         # 打印每个任务的执行结果
-        for task_id, result in results.items():
-            status = "✅" if result["status"] == "success" else "❌"
-            duration = result.get("duration", 0)
-            print(f"{status} {task_id} - 用时: {duration:.2f}秒")
-            
-            if result["status"] != "success":
-                print(f"   错误信息: {result.get('error', '未知错误')}")
+        for task_id in workflow.dag.tasks:
+            if task_id in completed_tasks:
+                print(f"✅ {task_id}")
+            elif task_id == failed_task_id:
+                print(f"❌ {task_id}")
+                error_message = workflow.execution_history[-1].get("error_message", "未知错误")
+                print(f"   错误信息: {error_message}")
         
         # 如果执行失败，获取并显示未完成的任务列表
         if not success:
@@ -286,16 +292,13 @@ def run_workflow(config_path, params_path=None, job_ids=None, start_from=None):
                 tasks_to_execute = set(workflow.dag.tasks.keys())
             
             # 获取已完成任务ID
-            completed_task_ids = set()
-            failed_task_ids = set()
-            for task_id, result in results.items():
-                if result["status"] == "success":
-                    completed_task_ids.add(task_id)
-                else:
-                    failed_task_ids.add(task_id)
+            completed_task_ids = set(completed_tasks)
+            failed_task_ids = set([failed_task_id]) if failed_task_id else set()
             
-            # 计算未完成任务ID - 应该执行但未出现在结果中的任务
-            uncompleted_task_ids = tasks_to_execute - completed_task_ids - failed_task_ids
+            # 计算未完成任务ID
+            uncompleted_task_ids = tasks_to_execute - completed_task_ids
+            if failed_task_id:
+                uncompleted_task_ids -= failed_task_ids
             
             # 显示未完成任务信息
             print("\n任务执行摘要:")
@@ -304,7 +307,7 @@ def run_workflow(config_path, params_path=None, job_ids=None, start_from=None):
             if uncompleted_task_ids:
                 print(f"未执行任务: {', '.join(sorted(uncompleted_task_ids))}")
                 print("原因: 由于上游任务失败，这些任务未被执行")
-            
+        
         return success
     except Exception as e:
         print(f"工作流执行失败: {str(e)}")
@@ -646,8 +649,10 @@ def run_backfill(config_path, backfill_params_path, job_ids=None, start_from=Non
         if not dry_run:
             start_time = time.time()
             try:
-                results = workflow.execute(only_tasks=task_ids, start_from=start_from)
-                success = all(result["status"] == "success" for result in results.values())
+                # 在执行时传递当前回溯日期作为参数
+                results = workflow.execute(only_tasks=task_ids, start_from=start_from, backfill_date=date_point)
+                # 工作流执行到这里表示没有抛出异常，说明执行成功
+                success = True
                 elapsed = time.time() - start_time
                 
                 if success:
@@ -675,35 +680,25 @@ def run_backfill(config_path, backfill_params_path, job_ids=None, start_from=Non
                     else:
                         tasks_to_execute = set(workflow.dag.tasks.keys())
                     
-                    # 获取已完成和失败的任务ID
-                    completed_task_ids = set()
-                    failed_task_ids = set()
-                    for task_id, result in results.items():
-                        if result["status"] == "success":
-                            completed_task_ids.add(task_id)
-                        else:
-                            failed_task_ids.add(task_id)
-                            # 提供更详细的错误信息
-                            error_msg = result.get("error", "未知错误")
-                            print(f"   - 任务 {task_id} 失败: {error_msg}")
-                            
-                            # 如果有额外的错误详情，打印出来
-                            if "error_details" in result:
-                                print(f"     错误详情: {result['error_details']}")
-                            
-                            # 打印任务执行时使用的参数
-                            if "params" in result:
-                                print(f"     执行参数:")
-                                for param_key, param_value in result["params"].items():
-                                    print(f"       {param_key}: {param_value}")
+                    # 获取已完成任务
+                    completed_task_ids = set(workflow.execution_history[-1].get("completed_tasks", []))
+                    
+                    # 获取失败任务
+                    failed_task_id = workflow.execution_history[-1].get("failed_task_id")
+                    failed_task_ids = set([failed_task_id]) if failed_task_id else set()
                     
                     # 计算未完成任务ID
-                    uncompleted_task_ids = tasks_to_execute - completed_task_ids - failed_task_ids
+                    uncompleted_task_ids = tasks_to_execute - completed_task_ids
+                    if failed_task_id:
+                        uncompleted_task_ids -= failed_task_ids
                     
-                    # 如果有未执行的任务，显示它们
+                    # 显示未完成任务信息
+                    print("\n任务执行摘要:")
+                    print(f"已完成任务: {', '.join(sorted(completed_task_ids)) if completed_task_ids else '无'}")
+                    print(f"失败任务: {', '.join(sorted(failed_task_ids)) if failed_task_ids else '无'}")
                     if uncompleted_task_ids:
-                        print(f"   未执行任务: {', '.join(sorted(uncompleted_task_ids))}")
-                        print("   原因: 由于上游任务失败，这些任务未被执行")
+                        print(f"未执行任务: {', '.join(sorted(uncompleted_task_ids))}")
+                        print("原因: 由于上游任务失败，这些任务未被执行")
             except Exception as e:
                 failure_count += 1
                 print(f"[{date_point}] ❌ 回溯失败: {str(e)}")
@@ -738,8 +733,8 @@ def run_backfill(config_path, backfill_params_path, job_ids=None, start_from=Non
                 print(f"""
 创建包含以下内容的文件 {failed_params_path}:
 {{
-    "custom_dates": {failed_date_points},
-    "date_param_names": {date_param_names},
+    "custom_dates": {json.dumps(failed_date_points)},
+    "date_param_names": {json.dumps(date_param_names)},
     "date_param_formats": {json.dumps(date_param_formats, indent=2)},
     "dry_run": false
 }}

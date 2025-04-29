@@ -14,6 +14,8 @@
 
 版本历史：
 - v1.0 (2024-07-11): 初始版本
+- v1.1 (2024-08-01): 添加任务重试功能支持和工作流成功告警
+- v1.2 (2024-08-03): 添加回溯日期显示在告警中
 """
 
 import copy
@@ -270,11 +272,11 @@ class DAG:
                 # 替换任务中的参数
                 task.resolve_params(self.param_manager)
                 
-                # 执行任务
+                # 执行任务（使用重试机制）
                 logger.info(f"开始执行任务: {task_id}")
                 start_time = time.time()
                 try:
-                    task_result = task.execute(upstream_results)
+                    task_result = task.execute_with_retry(upstream_results)
                     results[task_id] = task_result
                     duration = time.time() - start_time
                     logger.info(f"任务 {task_id} 执行成功，耗时 {duration:.2f} 秒")
@@ -463,7 +465,7 @@ class Workflow:
         return self
         
     def execute(self, start_from: Optional[str] = None, end_at: Optional[str] = None,
-               only_tasks: Optional[List[str]] = None) -> Dict[str, Any]:
+               only_tasks: Optional[List[str]] = None, backfill_date: Optional[str] = None) -> Dict[str, Any]:
         """
         执行工作流
         
@@ -471,12 +473,16 @@ class Workflow:
             start_from: 开始执行的任务ID
             end_at: 结束执行的任务ID
             only_tasks: 只执行指定的任务列表
+            backfill_date: 回溯日期，用于在告警中显示
             
         Returns:
             执行结果字典
         """
         start_time = time.time()
         logger.info(f"开始执行工作流: {self.name}")
+        if backfill_date:
+            logger.info(f"回溯日期: {backfill_date}")
+        
         completed_tasks = []
         failed_task_id = None
         error_message = None
@@ -546,11 +552,11 @@ class Workflow:
                     # 替换任务中的参数
                     task.resolve_params(self.dag.param_manager)
                     
-                    # 执行任务
+                    # 执行任务（使用重试机制）
                     logger.info(f"开始执行任务: {task_id}")
                     task_start_time = time.time()
                     try:
-                        task_result = task.execute(upstream_results)
+                        task_result = task.execute_with_retry(upstream_results)
                         results[task_id] = task_result
                         completed_tasks.append(task_id)
                         duration = time.time() - task_start_time
@@ -566,6 +572,16 @@ class Workflow:
                             raise
             
             status = "SUCCESS"
+            
+            # 如果启用了告警，发送工作流成功的告警
+            if self.send_alert_on_failure:
+                alert_manager.send_workflow_success_alert(
+                    workflow_name=self.name,
+                    start_time=start_time,
+                    completed_tasks=completed_tasks,
+                    backfill_date=backfill_date
+                )
+            
             return results
         except Exception as e:
             logger.error(f"工作流执行失败: {str(e)}")
@@ -586,7 +602,8 @@ class Workflow:
                     failed_task_id=failed_task_id,
                     failed_reason=error_message,
                     completed_tasks=completed_tasks,
-                    uncompleted_tasks=uncompleted_tasks
+                    uncompleted_tasks=uncompleted_tasks,
+                    backfill_date=backfill_date
                 )
                 
             raise
@@ -604,13 +621,17 @@ class Workflow:
                 "start_from": start_from,
                 "end_at": end_at,
                 "only_tasks": only_tasks,
+                "backfill_date": backfill_date,
                 "completed_tasks": completed_tasks,
                 "failed_task_id": failed_task_id,
                 "error_message": error_message
             }
             self.execution_history.append(execution_record)
             
-            logger.info(f"工作流 {self.name} 执行完成，状态: {status}，耗时: {duration:.2f} 秒")
+            log_msg = f"工作流 {self.name} 执行完成，状态: {status}，耗时: {duration:.2f} 秒"
+            if backfill_date:
+                log_msg += f"，回溯日期: {backfill_date}"
+            logger.info(log_msg)
             
         return results
     

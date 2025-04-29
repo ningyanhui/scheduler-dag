@@ -16,6 +16,7 @@
 - v1.0 (2024-07-11): 初始版本
 - v1.1 (2024-07-15): 添加PythonTask的custom_command参数支持
 - v1.2 (2024-07-26): 添加实时日志输出功能
+- v1.3 (2024-08-01): 添加任务重试功能，默认重试三次
 """
 
 import os
@@ -26,6 +27,7 @@ import subprocess
 import tempfile
 import threading
 import queue
+import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Union, Tuple
 import shlex
@@ -113,7 +115,7 @@ def stream_output(process, task_id):
 class Task(ABC):
     """任务抽象基类，定义了所有任务的通用接口"""
     
-    def __init__(self, task_id: str, task_type: str, params: Optional[Dict[str, Any]] = None):
+    def __init__(self, task_id: str, task_type: str, params: Optional[Dict[str, Any]] = None, max_retries: int = 3):
         """
         初始化任务
         
@@ -121,10 +123,12 @@ class Task(ABC):
             task_id: 任务ID
             task_type: 任务类型
             params: 任务参数
+            max_retries: 最大重试次数，默认为3
         """
         self.task_id = task_id
         self.task_type = task_type
         self.params = params or {}
+        self.max_retries = max_retries
         
     def set_param(self, key: str, value: Any) -> 'Task':
         """
@@ -178,13 +182,64 @@ class Task(ABC):
             任务执行结果
         """
         pass
+    
+    def execute_with_retry(self, upstream_results: Dict[str, Any] = None) -> Any:
+        """
+        执行任务，支持重试机制
+        
+        Args:
+            upstream_results: 上游任务的执行结果字典
+        
+        Returns:
+            任务执行结果
+            
+        Raises:
+            Exception: 当所有重试都失败时抛出最后一次的异常
+        """
+        retries = 0
+        last_exception = None
+        
+        while retries <= self.max_retries:
+            try:
+                # 第一次执行
+                if retries == 0:
+                    logger.info(f"执行任务: {self.task_id}")
+                # 重试执行
+                else:
+                    # 指数退避策略: 重试等待时间为 2^(重试次数-1) 秒
+                    wait_time = 2 ** (retries - 1)
+                    logger.info(f"重试任务 {self.task_id} (第{retries}次重试)，等待{wait_time}秒后执行...")
+                    time.sleep(wait_time)
+                    logger.info(f"开始第{retries}次重试: {self.task_id}")
+                
+                # 执行任务
+                result = self.execute(upstream_results)
+                
+                # 如果执行成功，则返回结果
+                if retries > 0:
+                    logger.info(f"任务 {self.task_id} 在第{retries}次重试后成功")
+                return result
+                
+            except Exception as e:
+                # 记录异常
+                last_exception = e
+                retries += 1
+                
+                if retries <= self.max_retries:
+                    logger.warning(f"任务 {self.task_id} 执行失败，将进行第{retries}次重试。错误: {str(e)}")
+                else:
+                    logger.error(f"任务 {self.task_id} 已重试{self.max_retries}次仍失败，不再重试。错误: {str(e)}")
+                    break
+        
+        # 如果所有重试都失败，则抛出最后一次的异常
+        raise last_exception
 
 
 class ShellTask(Task):
     """Shell脚本任务，执行Shell命令或脚本"""
     
     def __init__(self, task_id: str, command: str, params: Optional[Dict[str, Any]] = None,
-                working_dir: Optional[str] = None):
+                working_dir: Optional[str] = None, max_retries: int = 3):
         """
         初始化Shell任务
         
@@ -193,8 +248,9 @@ class ShellTask(Task):
             command: Shell命令或脚本路径
             params: 任务参数
             working_dir: 工作目录
+            max_retries: 最大重试次数，默认为3
         """
-        super().__init__(task_id, "shell", params)
+        super().__init__(task_id, "shell", params, max_retries)
         self.command = command
         self.working_dir = working_dir
         
@@ -271,7 +327,7 @@ class PythonTask(Task):
     def __init__(self, task_id: str, script_path: Optional[str] = None, 
                  python_callable: Optional[callable] = None, script_content: Optional[str] = None,
                  params: Optional[Dict[str, Any]] = None, custom_command: Optional[str] = None,
-                 working_dir: Optional[str] = None):
+                 working_dir: Optional[str] = None, max_retries: int = 3):
         """
         初始化Python任务
         
@@ -284,8 +340,9 @@ class PythonTask(Task):
             custom_command: 自定义命令模板，用于支持位置参数
                 例如: "python {script_path} {params.day_id} {params.table_list}"
             working_dir: 工作目录
+            max_retries: 最大重试次数，默认为3
         """
-        super().__init__(task_id, "python", params)
+        super().__init__(task_id, "python", params, max_retries)
         
         # 检查参数，至少提供一种执行方式
         if not any([script_path, python_callable, script_content]):
@@ -526,7 +583,7 @@ class PySparkTask(Task):
     
     def __init__(self, task_id: str, script_path: Optional[str] = None, 
                  script_content: Optional[str] = None, params: Optional[Dict[str, Any]] = None,
-                 spark_config: Optional[Dict[str, str]] = None, working_dir: Optional[str] = None):
+                 spark_config: Optional[Dict[str, str]] = None, working_dir: Optional[str] = None, max_retries: int = 3):
         """
         初始化PySpark任务
         
@@ -537,8 +594,9 @@ class PySparkTask(Task):
             params: 任务参数
             spark_config: Spark配置参数
             working_dir: 工作目录
+            max_retries: 最大重试次数，默认为3
         """
-        super().__init__(task_id, "pyspark", params)
+        super().__init__(task_id, "pyspark", params, max_retries)
         
         # 检查参数，必须提供script_path或script_content中的一个
         if not script_path and not script_content:
@@ -698,7 +756,7 @@ class SparkSQLTask(Task):
     def __init__(self, task_id: str, sql: Optional[str] = None, sql_file: Optional[str] = None,
                 params: Optional[Dict[str, Any]] = None, 
                 spark_config: Optional[Dict[str, str]] = None, working_dir: Optional[str] = None,
-                init_script: Optional[Union[str, List[str]]] = None):
+                init_script: Optional[Union[str, List[str]]] = None, max_retries: int = 3):
         """
         初始化Spark SQL任务
         
@@ -710,8 +768,9 @@ class SparkSQLTask(Task):
             spark_config: Spark配置参数
             working_dir: 工作目录
             init_script: 初始化脚本路径，通过-i选项加载，可以是单个脚本路径或多个脚本路径的列表
+            max_retries: 最大重试次数，默认为3
         """
-        super().__init__(task_id, "spark-sql", params)
+        super().__init__(task_id, "spark-sql", params, max_retries)
         
         # 检查参数，必须提供sql或sql_file中的一个
         if not sql and not sql_file:
@@ -925,7 +984,7 @@ class HiveSQLTask(Task):
     def __init__(self, task_id: str, sql: Optional[str] = None, sql_file: Optional[str] = None,
                 params: Optional[Dict[str, Any]] = None, 
                 hive_config: Optional[Dict[str, str]] = None, working_dir: Optional[str] = None,
-                init_script: Optional[Union[str, List[str]]] = None):
+                init_script: Optional[Union[str, List[str]]] = None, max_retries: int = 3):
         """
         初始化Hive SQL任务
         
@@ -937,8 +996,9 @@ class HiveSQLTask(Task):
             hive_config: Hive配置参数
             working_dir: 工作目录
             init_script: 初始化脚本路径，通过-i选项加载，可以是单个脚本路径或多个脚本路径的列表
+            max_retries: 最大重试次数，默认为3
         """
-        super().__init__(task_id, "hive", params)
+        super().__init__(task_id, "hive", params, max_retries)
         
         # 检查参数，必须提供sql或sql_file中的一个
         if not sql and not sql_file:
